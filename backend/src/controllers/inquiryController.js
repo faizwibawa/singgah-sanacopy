@@ -17,6 +17,13 @@ const sendInquiry = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Kos tidak ditemukan' });
     }
 
+    if (kos.status_verifikasi !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Kos belum disetujui untuk publik sehingga belum dapat menerima pertanyaan',
+      });
+    }
+
     const inquiry = await Inquiry.create({
       pencari_id: req.user._id,
       pemilik_id: kos.pemilik_id,

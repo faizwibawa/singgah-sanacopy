@@ -1,3 +1,5 @@
+const multer = require('multer');
+
 const notFound = (req, res, next) => {
   const error = new Error(`Rute tidak ditemukan - ${req.originalUrl}`);
   res.status(404);
@@ -5,7 +7,7 @@ const notFound = (req, res, next) => {
 };
 
 const errorHandler = (err, req, res, next) => {
-  let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  let statusCode = err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
   let message = err.message;
 
   if (err.name === 'CastError' && err.kind === 'ObjectId') {
@@ -19,6 +21,16 @@ const errorHandler = (err, req, res, next) => {
     message = `Data duplikat: Nilai pada bidang '${field}' (${err.keyValue[field]}) sudah terdaftar.`;
   }
 
+  if (err instanceof multer.MulterError) {
+    statusCode = 400;
+    message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'Ukuran berkas foto melebihi batas maksimal 5MB'
+        : err.code === 'LIMIT_UNEXPECTED_FILE'
+        ? 'Jumlah foto melebihi batas maksimal (5 berkas) atau nama field tidak sesuai'
+        : `Gagal mengunggah berkas: ${err.message}`;
+  }
+
   if (err.name === 'ValidationError') {
     statusCode = 400;
     const errors = Object.values(err.errors).map((val) => val.message);
@@ -28,7 +40,7 @@ const errorHandler = (err, req, res, next) => {
   res.status(statusCode).json({
     success: false,
     message,
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
   });
 };
 

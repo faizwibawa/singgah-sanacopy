@@ -26,7 +26,9 @@ const fileFilter = (req, file, cb) => {
   if (extname && mimetype) {
     return cb(null, true);
   } else {
-    cb(new Error('Hanya berkas gambar (JPG, JPEG, PNG, WEBP) yang diizinkan!'));
+    const err = new Error('Hanya berkas gambar (JPG, JPEG, PNG, WEBP) yang diizinkan!');
+    err.statusCode = 400;
+    cb(err);
   }
 };
 

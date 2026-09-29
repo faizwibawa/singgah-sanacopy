@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getJwtSecret } = require('../config/jwt');
 
 const generateToken = (id, role) => {
   return jwt.sign(
     { id, role },
-    process.env.JWT_SECRET || 'super_secret_jwt_key_singgah_sana_paw_ugm_2026_2027',
+    getJwtSecret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 };

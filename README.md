@@ -122,10 +122,14 @@ Salin file `.env.example` menjadi `.env` di dalam direktori `backend/`:
 PORT=5000
 NODE_ENV=development
 MONGO_URI=mongodb://127.0.0.1:27017/singgah_sana_db
-JWT_SECRET=super_secret_jwt_key_singgah_sana_paw_ugm_2026_2027
+JWT_SECRET=<isi_dengan_string_acak_panjang>
 JWT_EXPIRES_IN=7d
 BASE_URL=http://localhost:5000
 ```
+> **Penting:** `JWT_SECRET` wajib diisi; server tidak akan berjalan tanpanya. Buat nilai acak dengan:
+> ```bash
+> node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+> ```
 
 ### 4. Menjalankan Database Seeder
 Jalankan perintah berikut di dalam folder `backend/` untuk mengisi data awal akun dan kos contoh:

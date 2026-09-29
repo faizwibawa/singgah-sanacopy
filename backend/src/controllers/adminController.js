@@ -1,25 +1,25 @@
 const Kos = require('../models/Kos');
 const User = require('../models/User');
+const { safeSearchTerm, parsePagination, csvCell } = require('../utils/helpers');
 
 const getAllKosAdmin = async (req, res, next) => {
   try {
-    const { status, q, page = 1, limit = 15 } = req.query;
+    const { status, q, page, limit } = req.query;
 
     const filter = {};
     if (status) {
-      filter.status_verifikasi = status.toLowerCase();
+      filter.status_verifikasi = String(status).toLowerCase();
     }
     if (q) {
+      const term = safeSearchTerm(q);
       filter.$or = [
-        { nama: { $regex: q, $options: 'i' } },
-        { alamat: { $regex: q, $options: 'i' } },
-        { area_kampus: { $regex: q, $options: 'i' } },
+        { nama: { $regex: term, $options: 'i' } },
+        { alamat: { $regex: term, $options: 'i' } },
+        { area_kampus: { $regex: term, $options: 'i' } },
       ];
     }
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const skip = (pageNum - 1) * limitNum;
+    const { pageNum, limitNum, skip } = parsePagination(page, limit, 15);
 
     const totalData = await Kos.countDocuments(filter);
     const dataKos = await Kos.find(filter)
@@ -144,12 +144,13 @@ const getAllUsers = async (req, res, next) => {
   try {
     const { role, q } = req.query;
     const filter = {};
-    if (role) filter.role = role.toLowerCase();
+    if (role) filter.role = String(role).toLowerCase();
     if (q) {
+      const term = safeSearchTerm(q);
       filter.$or = [
-        { nama: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } },
-        { nomor_telepon: { $regex: q, $options: 'i' } },
+        { nama: { $regex: term, $options: 'i' } },
+        { email: { $regex: term, $options: 'i' } },
+        { nomor_telepon: { $regex: term, $options: 'i' } },
       ];
     }
 
@@ -172,12 +173,20 @@ const exportKosCSV = async (req, res, next) => {
     let csv = 'ID,Nama Kos,Tipe,Harga Per Bulan,Kamar Tersedia,Kamar Total,Status Verifikasi,Area Kampus,Alamat,Nama Pemilik,Kontak Pemilik\n';
 
     dataKos.forEach((k) => {
-      const nama = `"${(k.nama || '').replace(/"/g, '""')}"`;
-      const alamat = `"${(k.alamat || '').replace(/"/g, '""')}"`;
-      const pemilik = k.pemilik_id ? `"${k.pemilik_id.nama}"` : '""';
-      const kontak = k.pemilik_id ? `"${k.pemilik_id.nomor_telepon}"` : '""';
-
-      csv += `${k._id},${nama},${k.tipe},${k.harga_per_bulan},${k.jumlah_kamar_tersedia},${k.jumlah_kamar_total},${k.status_verifikasi},${k.area_kampus},${alamat},${pemilik},${kontak}\n`;
+      const row = [
+        k._id,
+        k.nama,
+        k.tipe,
+        k.harga_per_bulan,
+        k.jumlah_kamar_tersedia,
+        k.jumlah_kamar_total,
+        k.status_verifikasi,
+        k.area_kampus,
+        k.alamat,
+        k.pemilik_id ? k.pemilik_id.nama : '',
+        k.pemilik_id ? k.pemilik_id.nomor_telepon : '',
+      ];
+      csv += row.map(csvCell).join(',') + '\n';
     });
 
     res.setHeader('Content-Type', 'text/csv');

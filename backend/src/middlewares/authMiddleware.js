@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getJwtSecret } = require('../config/jwt');
 
 const protect = async (req, res, next) => {
   let token;
@@ -19,10 +20,7 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'super_secret_jwt_key_singgah_sana_paw_ugm_2026_2027'
-    );
+    const decoded = jwt.verify(token, getJwtSecret());
 
     const user = await User.findById(decoded.id);
     if (!user) {
@@ -55,10 +53,7 @@ const optionalProtect = async (req, res, next) => {
 
   if (token) {
     try {
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'super_secret_jwt_key_singgah_sana_paw_ugm_2026_2027'
-      );
+      const decoded = jwt.verify(token, getJwtSecret());
       const user = await User.findById(decoded.id);
       if (user) {
         req.user = user;

@@ -1,4 +1,20 @@
 const Kos = require('../models/Kos');
+const Favorit = require('../models/Favorit');
+const Inquiry = require('../models/Inquiry');
+const {
+  safeSearchTerm,
+  escapeRegex,
+  parsePagination,
+  toNumberOrUndefined,
+} = require('../utils/helpers');
+
+// Field yang bila diubah pemilik pada kos yang sudah disetujui/ditolak
+// mengharuskan verifikasi ulang oleh admin. Perubahan kuota kamar tidak termasuk,
+// agar pemilik tetap bisa memperbarui ketersediaan kamar secara real-time.
+const FIELD_BUTUH_VERIFIKASI_ULANG = [
+  'nama', 'deskripsi', 'alamat', 'area_kampus', 'koordinat', 'harga_per_bulan',
+  'tipe', 'fasilitas', 'luas_kamar', 'peraturan', 'jumlah_kamar_total',
+];
 
 const getAllKosPublic = async (req, res, next) => {
   try {
@@ -11,33 +27,36 @@ const getAllKosPublic = async (req, res, next) => {
       kamar_tersedia,
       area_kampus,
       sort,
-      page = 1,
-      limit = 10,
+      page,
+      limit,
     } = req.query;
 
     const filter = { status_verifikasi: 'approved' };
 
     if (q) {
+      const term = safeSearchTerm(q);
       filter.$or = [
-        { nama: { $regex: q, $options: 'i' } },
-        { alamat: { $regex: q, $options: 'i' } },
-        { area_kampus: { $regex: q, $options: 'i' } },
-        { deskripsi: { $regex: q, $options: 'i' } },
+        { nama: { $regex: term, $options: 'i' } },
+        { alamat: { $regex: term, $options: 'i' } },
+        { area_kampus: { $regex: term, $options: 'i' } },
+        { deskripsi: { $regex: term, $options: 'i' } },
       ];
     }
 
     if (tipe) {
-      filter.tipe = tipe.toLowerCase();
+      filter.tipe = String(tipe).toLowerCase();
     }
 
     if (area_kampus) {
-      filter.area_kampus = { $regex: area_kampus, $options: 'i' };
+      filter.area_kampus = { $regex: safeSearchTerm(area_kampus), $options: 'i' };
     }
 
-    if (harga_min || harga_max) {
+    const hargaMin = toNumberOrUndefined(harga_min);
+    const hargaMax = toNumberOrUndefined(harga_max);
+    if (hargaMin !== undefined || hargaMax !== undefined) {
       filter.harga_per_bulan = {};
-      if (harga_min) filter.harga_per_bulan.$gte = Number(harga_min);
-      if (harga_max) filter.harga_per_bulan.$lte = Number(harga_max);
+      if (hargaMin !== undefined) filter.harga_per_bulan.$gte = hargaMin;
+      if (hargaMax !== undefined) filter.harga_per_bulan.$lte = hargaMax;
     }
 
     if (kamar_tersedia === 'true') {
@@ -45,8 +64,13 @@ const getAllKosPublic = async (req, res, next) => {
     }
 
     if (fasilitas) {
-      const fasList = fasilitas.split(',').map((f) => new RegExp(f.trim(), 'i'));
-      filter.fasilitas = { $all: fasList };
+      const fasList = String(fasilitas)
+        .split(',')
+        .map((f) => f.trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .map((f) => new RegExp(escapeRegex(f.slice(0, 50)), 'i'));
+      if (fasList.length > 0) filter.fasilitas = { $all: fasList };
     }
 
     let sortOptions = { createdAt: -1 };
@@ -54,9 +78,7 @@ const getAllKosPublic = async (req, res, next) => {
     if (sort === 'harga_desc') sortOptions = { harga_per_bulan: -1 };
     if (sort === 'kamar_banyak') sortOptions = { jumlah_kamar_tersedia: -1 };
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const skip = (pageNum - 1) * limitNum;
+    const { pageNum, limitNum, skip } = parsePagination(page, limit, 10);
 
     const totalData = await Kos.countDocuments(filter);
     const dataKos = await Kos.find(filter)
@@ -97,7 +119,8 @@ const getKosById = async (req, res, next) => {
 
     if (kos.status_verifikasi !== 'approved') {
       const user = req.user;
-      const isOwner = user && kos.pemilik_id._id.toString() === user._id.toString();
+      const isOwner =
+        user && kos.pemilik_id && kos.pemilik_id._id.toString() === user._id.toString();
       const isAdmin = user && user.role === 'admin';
 
       if (!isOwner && !isAdmin) {
@@ -264,11 +287,25 @@ const updateKos = async (req, res, next) => {
       kos.jumlah_kamar_tersedia = Number(jumlah_kamar_tersedia);
     }
 
+    // Pemilik mengubah data penting pada kos yang sudah diverifikasi -> kembali ke antrean verifikasi
+    let butuhVerifikasiUlang = false;
+    if (req.user.role !== 'admin' && kos.status_verifikasi !== 'pending') {
+      butuhVerifikasiUlang = FIELD_BUTUH_VERIFIKASI_ULANG.some((f) => kos.isModified(f));
+      if (butuhVerifikasiUlang) {
+        kos.status_verifikasi = 'pending';
+        kos.catatan_verifikasi = 'Data kos diperbarui oleh pemilik dan menunggu verifikasi ulang admin.';
+        kos.diverifikasi_oleh = null;
+        kos.diverifikasi_pada = null;
+      }
+    }
+
     const updatedKos = await kos.save();
 
     res.status(200).json({
       success: true,
-      message: 'Data kos berhasil diperbarui',
+      message: butuhVerifikasiUlang
+        ? 'Data kos berhasil diperbarui dan akan ditinjau ulang oleh Administrator sebelum tayang kembali'
+        : 'Data kos berhasil diperbarui',
       data: updatedKos,
     });
   } catch (error) {
@@ -291,6 +328,10 @@ const deleteKos = async (req, res, next) => {
       });
     }
 
+    await Promise.all([
+      Favorit.deleteMany({ kos_id: kos._id }),
+      Inquiry.deleteMany({ kos_id: kos._id }),
+    ]);
     await kos.deleteOne();
 
     res.status(200).json({

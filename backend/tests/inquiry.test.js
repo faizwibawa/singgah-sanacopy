@@ -154,3 +154,116 @@ describe('PATCH /api/inquiries/:id/reply (balas pertanyaan)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('Inquiry: validasi input dan hak akses', () => {
+  let pemilik;
+  let tokenPemilik;
+  let tokenPencari;
+  let kos;
+
+  beforeEach(async () => {
+    ({ user: pemilik, token: tokenPemilik } = await createUser('pemilik'));
+    ({ token: tokenPencari } = await createUser('pencari'));
+    kos = await createKos(pemilik);
+  });
+
+  it('menolak pertanyaan tanpa kos_id dengan 400', async () => {
+    const res = await kirimInquiry(tokenPencari, { pesan: 'Halo' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('menolak pertanyaan tanpa pesan dengan 400', async () => {
+    const res = await kirimInquiry(tokenPencari, { kos_id: kos._id });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('menolak pesan yang hanya berisi spasi dengan 400', async () => {
+    const res = await kirimInquiry(tokenPencari, { kos_id: kos._id, pesan: '    ' });
+
+    expect(res.statusCode).toBe(400);
+    expect(await Inquiry.countDocuments()).toBe(0);
+  });
+
+  it('menolak pemilik yang mencoba mengirim pertanyaan dengan 403', async () => {
+    const res = await kirimInquiry(tokenPemilik, { kos_id: kos._id, pesan: 'Halo' });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('menolak request tanpa token dengan 401', async () => {
+    const res = await request(app).post('/api/inquiries').send({ kos_id: kos._id, pesan: 'Halo' });
+
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('menolak pencari yang mencoba membalas dengan 403', async () => {
+    const kirim = await kirimInquiry(tokenPencari, { kos_id: kos._id, pesan: 'Halo' });
+
+    const res = await balasInquiry(tokenPencari, kirim.body.data._id, 'Balas sendiri');
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('menolak balasan kosong dengan 400', async () => {
+    const kirim = await kirimInquiry(tokenPencari, { kos_id: kos._id, pesan: 'Halo' });
+
+    const res = await balasInquiry(tokenPemilik, kirim.body.data._id, '');
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('mengembalikan 404 saat membalas pertanyaan yang tidak ada', async () => {
+    const res = await balasInquiry(tokenPemilik, '64b000000000000000000000', 'Halo');
+
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('GET /api/inquiries/my dan /owner (daftar pertanyaan)', () => {
+  it('pencari hanya melihat pertanyaannya sendiri', async () => {
+    const { user: pemilik } = await createUser('pemilik');
+    const { token: tokenA } = await createUser('pencari');
+    const { token: tokenB } = await createUser('pencari');
+    const kos = await createKos(pemilik);
+    await kirimInquiry(tokenA, { kos_id: kos._id, pesan: 'Dari A' });
+    await kirimInquiry(tokenB, { kos_id: kos._id, pesan: 'Dari B' });
+
+    const res = await request(app).get('/api/inquiries/my').set(auth(tokenA));
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.data[0].pesan).toBe('Dari A');
+    expect(res.body.data[0].kos_id.nama).toBe(kos.nama);
+  });
+
+  it('pemilik hanya melihat pertanyaan untuk kos miliknya', async () => {
+    const { user: pemilikA, token: tokenPemilikA } = await createUser('pemilik');
+    const { user: pemilikB } = await createUser('pemilik');
+    const { token: tokenPencari } = await createUser('pencari');
+    const kosA = await createKos(pemilikA);
+    const kosB = await createKos(pemilikB);
+    await kirimInquiry(tokenPencari, { kos_id: kosA._id, pesan: 'Untuk A' });
+    await kirimInquiry(tokenPencari, { kos_id: kosB._id, pesan: 'Untuk B' });
+
+    const res = await request(app).get('/api/inquiries/owner').set(auth(tokenPemilikA));
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.data[0].pesan).toBe('Untuk A');
+  });
+
+  it.each([
+    ['/api/inquiries/my', 'pemilik'],
+    ['/api/inquiries/owner', 'pencari'],
+  ])('%s menolak role %s dengan 403', async (url, role) => {
+    const { token } = await createUser(role);
+
+    const res = await request(app).get(url).set(auth(token));
+
+    expect(res.statusCode).toBe(403);
+  });
+});

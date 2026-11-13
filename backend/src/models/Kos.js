@@ -1,4 +1,8 @@
+const fs = require('fs');
+const path = require('path');
 const mongoose = require('mongoose');
+
+const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 
 const kosSchema = new mongoose.Schema(
   {
@@ -117,5 +121,36 @@ const kosSchema = new mongoose.Schema(
 );
 
 kosSchema.index({ nama: 'text', deskripsi: 'text', alamat: 'text', area_kampus: 'text' });
+
+// Saat satu kos dihapus (kos.deleteOne()), hapus juga data yang menunjuk ke kos tersebut.
+// Model diambil lewat mongoose.model() di dalam hook supaya tidak terjadi circular require.
+kosSchema.pre('deleteOne', { document: true, query: false }, async function () {
+  await Promise.all([
+    mongoose.model('Favorit').deleteMany({ kos_id: this._id }),
+    mongoose.model('Inquiry').deleteMany({ kos_id: this._id }),
+  ]);
+});
+
+// Berkas foto lokal baru dihapus setelah kos benar-benar terhapus,
+// supaya foto tidak hilang jika penghapusan kos gagal di tengah jalan.
+kosSchema.post('deleteOne', { document: true, query: false }, async function () {
+  const fotoLokal = (this.foto || []).filter(
+    (foto) => typeof foto === 'string' && foto.startsWith('/uploads/')
+  );
+
+  await Promise.all(
+    fotoLokal.map(async (foto) => {
+      // basename() mencegah path seperti '/uploads/../.env' keluar dari folder uploads
+      const filePath = path.join(UPLOAD_DIR, path.basename(foto));
+      try {
+        await fs.promises.unlink(filePath);
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          console.error(`[Kos] Gagal menghapus berkas foto ${filePath}: ${error.message}`);
+        }
+      }
+    })
+  );
+});
 
 module.exports = mongoose.model('Kos', kosSchema);

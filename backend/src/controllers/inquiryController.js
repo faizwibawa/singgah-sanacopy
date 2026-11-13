@@ -73,10 +73,13 @@ const sendInquiry = async (req, res, next) => {
 
 const getMyInquiries = async (req, res, next) => {
   try {
-    const listInquiry = await Inquiry.find({ pencari_id: req.user._id })
+    const semuaInquiry = await Inquiry.find({ pencari_id: req.user._id })
       .populate('kos_id', 'nama alamat foto harga_per_bulan tipe')
       .populate('pemilik_id', 'nama nomor_telepon')
       .sort({ createdAt: -1 });
+
+    // Jaring pengaman: lewati inquiry yang kos-nya sudah tidak ada
+    const listInquiry = semuaInquiry.filter((inquiry) => inquiry.kos_id);
 
     res.status(200).json({
       success: true,
@@ -90,10 +93,13 @@ const getMyInquiries = async (req, res, next) => {
 
 const getOwnerInquiries = async (req, res, next) => {
   try {
-    const listInquiry = await Inquiry.find({ pemilik_id: req.user._id })
+    const semuaInquiry = await Inquiry.find({ pemilik_id: req.user._id })
       .populate('kos_id', 'nama alamat')
       .populate('pencari_id', 'nama nomor_telepon email')
       .sort({ createdAt: -1 });
+
+    // Jaring pengaman: lewati inquiry yang kos-nya sudah tidak ada
+    const listInquiry = semuaInquiry.filter((inquiry) => inquiry.kos_id);
 
     res.status(200).json({
       success: true,

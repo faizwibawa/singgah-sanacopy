@@ -1,6 +1,9 @@
 const Inquiry = require('../models/Inquiry');
 const Kos = require('../models/Kos');
 
+const PESAN_INQUIRY_DUPLIKAT =
+  'Anda masih memiliki pertanyaan yang menunggu balasan untuk kos ini. Mohon tunggu balasan pemilik sebelum mengirim pertanyaan baru';
+
 const sendInquiry = async (req, res, next) => {
   try {
     const { kos_id, pesan } = req.body;
@@ -17,6 +20,26 @@ const sendInquiry = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Kos tidak ditemukan' });
     }
 
+    if (kos.status_verifikasi !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Kos belum disetujui untuk publik sehingga belum dapat ditanyakan',
+      });
+    }
+
+    const existing = await Inquiry.findOne({
+      pencari_id: req.user._id,
+      kos_id,
+      status: 'menunggu',
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: PESAN_INQUIRY_DUPLIKAT,
+        data: { inquiry_id: existing._id },
+      });
+    }
+
     const inquiry = await Inquiry.create({
       pencari_id: req.user._id,
       pemilik_id: kos.pemilik_id,
@@ -31,6 +54,19 @@ const sendInquiry = async (req, res, next) => {
       data: inquiry,
     });
   } catch (error) {
+    // Dua request bersamaan bisa lolos findOne di atas; unique index di Inquiry.js menahannya
+    if (error.code === 11000) {
+      const existing = await Inquiry.findOne({
+        pencari_id: req.user._id,
+        kos_id: req.body.kos_id,
+        status: 'menunggu',
+      }).catch(() => null);
+      return res.status(409).json({
+        success: false,
+        message: PESAN_INQUIRY_DUPLIKAT,
+        data: existing ? { inquiry_id: existing._id } : undefined,
+      });
+    }
     next(error);
   }
 };
@@ -89,6 +125,14 @@ const replyInquiry = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'Akses ditolak: Anda bukan pemilik yang berhak membalas pesan ini',
+      });
+    }
+
+    // Keputusan P1: balasan yang sudah terkirim tidak bisa diubah
+    if (inquiry.status === 'dibalas') {
+      return res.status(400).json({
+        success: false,
+        message: 'Pesan ini sudah dibalas sehingga balasan tidak dapat diubah lagi',
       });
     }
 

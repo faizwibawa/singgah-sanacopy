@@ -24,11 +24,13 @@ const inquirySchema = new mongoose.Schema(
       type: String,
       required: [true, 'Pesan pertanyaan wajib diisi'],
       trim: true,
+      maxlength: [1000, 'Pesan pertanyaan maksimal 1000 karakter'],
     },
     balasan: {
       type: String,
       default: '',
       trim: true,
+      maxlength: [1000, 'Balasan maksimal 1000 karakter'],
     },
     status: {
       type: String,
@@ -39,6 +41,13 @@ const inquirySchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+// Satu pencari hanya boleh punya satu inquiry 'menunggu' per kos.
+// Pengecekan utama ada di controller (409); index ini menjaga dari request yang masuk bersamaan.
+inquirySchema.index(
+  { pencari_id: 1, kos_id: 1 },
+  { unique: true, partialFilterExpression: { status: 'menunggu' } }
 );
 
 module.exports = mongoose.model('Inquiry', inquirySchema);

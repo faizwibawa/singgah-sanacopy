@@ -3,7 +3,7 @@ const Kos = require('../models/Kos');
 
 const getMyFavorites = async (req, res, next) => {
   try {
-    const listFavorit = await Favorit.find({ user_id: req.user._id })
+    const semuaFavorit = await Favorit.find({ user_id: req.user._id })
       .populate({
         path: 'kos_id',
         populate: {
@@ -12,6 +12,9 @@ const getMyFavorites = async (req, res, next) => {
         },
       })
       .sort({ createdAt: -1 });
+
+    // Jaring pengaman: lewati favorit yang kos-nya sudah tidak ada
+    const listFavorit = semuaFavorit.filter((favorit) => favorit.kos_id);
 
     res.status(200).json({
       success: true,
